@@ -1,0 +1,5 @@
+streamlit
+torch
+sentence-transformers
+Pillow
+unidecode
