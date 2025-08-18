@@ -27,22 +27,36 @@ images = [Image.open(p).convert("RGB").resize((224,224)) for p in image_paths]
 image_embeddings = model.encode([img for img in images], convert_to_tensor=True)
 
 # funkcja wyszukiwania obrazów
-def search(query, top_k=5):
-    query_emb = model.encode([query], convert_to_tensor=True)
-    sims = util.cos_sim(query_emb, image_embeddings)[0]
-    top_results = torch.topk(sims, k=min(top_k, len(sims)))
-    return [image_paths[i] for i in top_results.indices]
+def search(query, top_k=5, color_weight=0.3):
+    query_en = translator.translate(query, src='pl', dest='en').text.lower()
 
-# Streamlit UI
-st.title("Wyszukiwarka obrazów")
+    # wykrycie koloru w zapytaniu
+    query_color = None
+    for word in query_en.split():
+        if word in color_dict:
+            query_color = color_dict[word]
+            break
 
-query = st.text_input("Wpisz zapytanie", "")
-top_k = st.slider("Liczba wyników", 1, 10, 5)
+    results = []
+    for i, emb in enumerate(image_embeddings):
+        # similarity CLIP
+        sim = util.cos_sim(model.encode([query_en], convert_to_tensor=True), emb.unsqueeze(0))[0][0].item()
 
-if query:
-    results = search(query, top_k=top_k)
-    if results:
-        for r in results:
-            st.image(Image.open(r))
-    else:
-        st.write("Brak wyników dla zapytania.")
+        # similarity koloru
+        if query_color is not None:
+            color_sim = color_similarity(query_color, get_dominant_color(images[i]))
+            sim = (1 - color_weight) * sim + color_weight * color_sim
+
+        results.append((i, sim))
+
+    # sortowanie i top_k
+    results = sorted(results, key=lambda x: x[1], reverse=True)[:top_k]
+    return [image_paths[i] for i, s in results]
+
+query = "pies na trawie"
+results = search(query, top_k=2)
+
+from IPython.display import display
+for r in results:
+    display(Image.open(r))
+
