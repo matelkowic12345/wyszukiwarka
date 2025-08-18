@@ -1,21 +1,48 @@
 import streamlit as st
 from PIL import Image
-from my_search_module import search, image_paths, images  # zaimportuj swoje funkcje i zmienne
+import torch
+from sentence_transformers import SentenceTransformer, util
+import os
 
-st.title("Mini wyszukiwarka obrazów")
+# model SBERT
+model = SentenceTransformer('clip-ViT-B-32')
 
-query = st.text_input("Wpisz, czego szukasz:")
+# wczytanie obrazów i ich embeddings
+image_folder = 'images'
+image_paths = []
 
-top_k = st.slider("Ile wyników pokazać?", 1, 10, 5)
+# filtrujemy tylko obrazy i pomijamy błędne pliki
+for f in os.listdir(image_folder):
+    path = os.path.join(image_folder, f)
+    if f.lower().endswith(('.png', '.jpg', '.jpeg')):
+        try:
+            # testowe otwarcie pliku
+            img = Image.open(path).convert("RGB").resize((224,224))
+            image_paths.append(path)
+        except Exception as e:
+            print(f"Nie udało się otworzyć {f}: {e}")
 
-if st.button("Szukaj"):
-    if query.strip() == "":
-        st.warning("Wpisz zapytanie")
+# wczytanie obrazów do listy
+images = [Image.open(p).convert("RGB").resize((224,224)) for p in image_paths]
+image_embeddings = model.encode([img for img in images], convert_to_tensor=True)
+
+# funkcja wyszukiwania obrazów
+def search(query, top_k=5):
+    query_emb = model.encode([query], convert_to_tensor=True)
+    sims = util.cos_sim(query_emb, image_embeddings)[0]
+    top_results = torch.topk(sims, k=min(top_k, len(sims)))
+    return [image_paths[i] for i in top_results.indices]
+
+# Streamlit UI
+st.title("Wyszukiwarka obrazów")
+
+query = st.text_input("Wpisz zapytanie", "")
+top_k = st.slider("Liczba wyników", 1, 10, 5)
+
+if query:
+    results = search(query, top_k=top_k)
+    if results:
+        for r in results:
+            st.image(Image.open(r))
     else:
-        results = search(query, top_k=top_k)
-        if len(results) == 0:
-            st.info("Nie znaleziono wyników")
-        else:
-            for r in results:
-                img = Image.open(r)
-                st.image(img, use_column_width=True)
+        st.write("Brak wyników dla zapytania.")
