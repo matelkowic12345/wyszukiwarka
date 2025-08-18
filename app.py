@@ -3,60 +3,52 @@ from PIL import Image
 import torch
 from sentence_transformers import SentenceTransformer, util
 import os
+from googletrans import Translator  # pip install googletrans==4.0.0-rc1
 
-# model SBERT
+# model SBERT (CLIP)
 model = SentenceTransformer('clip-ViT-B-32')
 
-# wczytanie obrazów i ich embeddings
+# translator (PL -> EN)
+translator = Translator()
+
+# wczytanie obrazów i filtracja błędnych plików
 image_folder = 'images'
 image_paths = []
+images = []
 
-# filtrujemy tylko obrazy i pomijamy błędne pliki
 for f in os.listdir(image_folder):
     path = os.path.join(image_folder, f)
     if f.lower().endswith(('.png', '.jpg', '.jpeg')):
         try:
-            # testowe otwarcie pliku
             img = Image.open(path).convert("RGB").resize((224,224))
+            images.append(img)
             image_paths.append(path)
         except Exception as e:
             print(f"Nie udało się otworzyć {f}: {e}")
 
-# wczytanie obrazów do listy
-images = [Image.open(p).convert("RGB").resize((224,224)) for p in image_paths]
-image_embeddings = model.encode([img for img in images], convert_to_tensor=True)
+# embeddingi obrazów
+image_embeddings = model.encode(images, convert_to_tensor=True)
 
 # funkcja wyszukiwania obrazów
-def search(query, top_k=5, color_weight=0.3):
-    query_en = translator.translate(query, src='pl', dest='en').text.lower()
+def search(query, top_k=5):
+    # tłumaczenie zapytania na angielski
+    query_en = translator.translate(query, src='pl', dest='en').text
+    query_emb = model.encode([query_en], convert_to_tensor=True)
 
-    # wykrycie koloru w zapytaniu
-    query_color = None
-    for word in query_en.split():
-        if word in color_dict:
-            query_color = color_dict[word]
-            break
+    sims = util.cos_sim(query_emb, image_embeddings)[0]
+    top_results = torch.topk(sims, k=min(top_k, len(sims)))
+    return [image_paths[i] for i in top_results.indices]
 
-    results = []
-    for i, emb in enumerate(image_embeddings):
-        # similarity CLIP
-        sim = util.cos_sim(model.encode([query_en], convert_to_tensor=True), emb.unsqueeze(0))[0][0].item()
+# Streamlit UI
+st.title("Wyszukiwarka obrazów")
 
-        # similarity koloru
-        if query_color is not None:
-            color_sim = color_similarity(query_color, get_dominant_color(images[i]))
-            sim = (1 - color_weight) * sim + color_weight * color_sim
+query = st.text_input("Wpisz zapytanie", "")
+top_k = st.slider("Liczba wyników", 1, 10, 5)
 
-        results.append((i, sim))
-
-    # sortowanie i top_k
-    results = sorted(results, key=lambda x: x[1], reverse=True)[:top_k]
-    return [image_paths[i] for i, s in results]
-
-query = "pies na trawie"
-results = search(query, top_k=2)
-
-from IPython.display import display
-for r in results:
-    display(Image.open(r))
-
+if query:
+    results = search(query, top_k=top_k)
+    if results:
+        for r in results:
+            st.image(Image.open(r))
+    else:
+        st.write("Brak wyników dla zapytania.")
