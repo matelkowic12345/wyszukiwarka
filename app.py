@@ -1,62 +1,62 @@
 import streamlit as st
 from PIL import Image
 import torch
-from sentence_transformers import SentenceTransformer, util
+from transformers import CLIPProcessor, CLIPModel
 import os
+from googletrans import Translator
 
-# model SBERT
-model = SentenceTransformer('clip-ViT-B-32')
+# Inicjalizacja modelu CLIP
+model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32")
+processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
+translator = Translator()
 
-# wczytanie obrazów i ich embeddings
+# Folder z obrazami
 image_folder = 'images'
 image_paths = []
 
-# filtrujemy tylko obrazy i pomijamy błędne pliki
+# Wczytanie tylko plików obrazów
 for f in os.listdir(image_folder):
-    path = os.path.join(image_folder, f)
     if f.lower().endswith(('.png', '.jpg', '.jpeg')):
+        path = os.path.join(image_folder, f)
         try:
-            # testowe otwarcie pliku
-            img = Image.open(path).convert("RGB").resize((224, 224))
+            img = Image.open(path).convert("RGB")
             image_paths.append(path)
         except Exception as e:
             print(f"Nie udało się otworzyć {f}: {e}")
 
-# wczytanie obrazów do listy
-images = [Image.open(p).convert("RGB").resize((224, 224)) for p in image_paths]
-image_embeddings = model.encode([img for img in images], convert_to_tensor=True)
+# Wczytanie obrazów i przygotowanie embeddingów
+images = [Image.open(p).convert("RGB") for p in image_paths]
+image_inputs = processor(images=images, return_tensors="pt", padding=True)
+with torch.no_grad():
+    image_embeddings = model.get_image_features(**image_inputs)
+image_embeddings /= image_embeddings.norm(dim=-1, keepdim=True)  # normalizacja
 
-# funkcja wyszukiwania obrazów
-def search(query, top_k=5, color_weight=0.3):
-    query_en = translator.translate(query, src='pl', dest='en').text.lower()
+# Funkcja wyszukiwania obrazów
+def search(query, top_k=5):
+    # Tłumaczenie zapytania na angielski
+    query_en = translator.translate(query, src='pl', dest='en').text
+    text_inputs = processor(text=[query_en], images=None, return_tensors="pt", padding=True)
+    
+    with torch.no_grad():
+        text_embeddings = model.get_text_features(**text_inputs)
+        text_embeddings /= text_embeddings.norm(dim=-1, keepdim=True)
+    
+    # Obliczenie podobieństwa kosinusowego
+    sims = torch.matmul(text_embeddings, image_embeddings.T)[0]
+    top_results = torch.topk(sims, k=min(top_k, len(sims)))
+    
+    return [image_paths[i] for i in top_results.indices]
 
-    # wykrycie koloru w zapytaniu
-    query_color = None
-    for word in query_en.split():
-        if word in color_dict:
-            query_color = color_dict[word]
-            break
+# Streamlit UI
+st.title("Wyszukiwarka obrazów CLIP")
 
-    results = []
-    for i, emb in enumerate(image_embeddings):
-        # similarity CLIP
-        sim = util.cos_sim(model.encode([query_en], convert_to_tensor=True), emb.unsqueeze(0))[0][0].item()
+query = st.text_input("Wpisz zapytanie", "")
+top_k = st.slider("Liczba wyników", 1, 10, 5)
 
-        # similarity koloru
-        if query_color is not None:
-            color_sim = color_similarity(query_color, get_dominant_color(images[i]))
-            sim = (1 - color_weight) * sim + color_weight * color_sim
-
-        results.append((i, sim))
-
-    # sortowanie i top_k
-    results = sorted(results, key=lambda x: x[1], reverse=True)[:top_k]
-    return [image_paths[i] for i, s in results]
-
-# przykładowe wyszukiwanie
-query = "jadący samochód"
-results = search(query, top_k=2)
-
-from IPython.display import display
-for r in results:
-    display(Image.open(r))
+if query:
+    results = search(query, top_k=top_k)
+    if results:
+        for r in results:
+            st.image(Image.open(r))
+    else:
+        st.write("Brak wyników dla zapytania.")
