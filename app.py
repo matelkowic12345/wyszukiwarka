@@ -3,12 +3,21 @@ from PIL import Image
 import torch
 from transformers import CLIPProcessor, CLIPModel
 import os
-from googletrans import Translator
 
 # Inicjalizacja modelu CLIP
 model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32")
 processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
-translator = Translator()
+
+# Prosta mapa polskich słów na angielskie
+translation_dict = {
+    "samochód": "car",
+    "pies": "dog",
+    "kot": "cat",
+    "drzewo": "tree",
+    "trawa": "grass",
+    "dom": "house",
+    "rower": "bike"
+}
 
 # Folder z obrazami
 image_folder = 'images'
@@ -29,19 +38,18 @@ images = [Image.open(p).convert("RGB") for p in image_paths]
 image_inputs = processor(images=images, return_tensors="pt", padding=True)
 with torch.no_grad():
     image_embeddings = model.get_image_features(**image_inputs)
-image_embeddings /= image_embeddings.norm(dim=-1, keepdim=True)  # normalizacja
+image_embeddings /= image_embeddings.norm(dim=-1, keepdim=True)
 
 # Funkcja wyszukiwania obrazów
 def search(query, top_k=5):
-    # Tłumaczenie zapytania na angielski
-    query_en = translator.translate(query, src='pl', dest='en').text
-    text_inputs = processor(text=[query_en], images=None, return_tensors="pt", padding=True)
+    # Mapowanie polskich słów na angielskie
+    query_en = translation_dict.get(query.lower(), query.lower())
+    text_inputs = processor(text=[query_en], return_tensors="pt", padding=True)
     
     with torch.no_grad():
         text_embeddings = model.get_text_features(**text_inputs)
         text_embeddings /= text_embeddings.norm(dim=-1, keepdim=True)
     
-    # Obliczenie podobieństwa kosinusowego
     sims = torch.matmul(text_embeddings, image_embeddings.T)[0]
     top_results = torch.topk(sims, k=min(top_k, len(sims)))
     
@@ -50,7 +58,7 @@ def search(query, top_k=5):
 # Streamlit UI
 st.title("Wyszukiwarka obrazów CLIP")
 
-query = st.text_input("Wpisz zapytanie", "")
+query = st.text_input("Wpisz zapytanie (polskie lub angielskie)", "")
 top_k = st.slider("Liczba wyników", 1, 10, 5)
 
 if query:
