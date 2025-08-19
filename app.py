@@ -4,8 +4,8 @@ import torch
 from transformers import CLIPProcessor, CLIPModel
 import os
 
-model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32")
-processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
+img_model = SentenceTransformer('clip-ViT-B-32')
+text_model = SentenceTransformer('sentence-transformers/clip-ViT-B-32-multilingual-v1')
 
 translation_dict = {
     "samochód": "car",
