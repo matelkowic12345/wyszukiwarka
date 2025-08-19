@@ -4,11 +4,9 @@ import torch
 from transformers import CLIPProcessor, CLIPModel
 import os
 
-# Inicjalizacja modelu CLIP
 model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32")
 processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
 
-# Prosta mapa polskich słów na angielskie
 translation_dict = {
     "samochód": "car",
     "pies": "dog",
@@ -19,11 +17,9 @@ translation_dict = {
     "rower": "bike"
 }
 
-# Folder z obrazami
 image_folder = 'images'
 image_paths = []
 
-# Wczytanie tylko plików obrazów
 for f in os.listdir(image_folder):
     if f.lower().endswith(('.png', '.jpg', '.jpeg')):
         path = os.path.join(image_folder, f)
@@ -33,14 +29,12 @@ for f in os.listdir(image_folder):
         except Exception as e:
             print(f"Nie udało się otworzyć {f}: {e}")
 
-# Wczytanie obrazów i przygotowanie embeddingów
 images = [Image.open(p).convert("RGB") for p in image_paths]
 image_inputs = processor(images=images, return_tensors="pt", padding=True)
 with torch.no_grad():
     image_embeddings = model.get_image_features(**image_inputs)
 image_embeddings /= image_embeddings.norm(dim=-1, keepdim=True)
 
-# Funkcja wyszukiwania obrazów
 def search(query, top_k=5):
     # Mapowanie polskich słów na angielskie
     query_en = translation_dict.get(query.lower(), query.lower())
@@ -55,7 +49,6 @@ def search(query, top_k=5):
     
     return [image_paths[i] for i in top_results.indices]
 
-# Streamlit UI
 st.title("Wyszukiwarka obrazów CLIP")
 
 query = st.text_input("Wpisz zapytanie (polskie lub angielskie)", "")
