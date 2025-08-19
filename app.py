@@ -49,7 +49,7 @@ def search(query, top_k=5):
     
     return [image_paths[i] for i in top_results.indices]
 
-st.title("Wyszukiwarka obrazów CLIP")
+st.title("Wyszukiwarka obrazów")
 
 query = st.text_input("Wpisz zapytanie (polskie lub angielskie)", "")
 top_k = st.slider("Liczba wyników", 1, 10, 5)
